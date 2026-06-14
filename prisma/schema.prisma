@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Conversion {
+  id           String   @id @default(cuid())
+  sessionId    String   @unique
+  originalName String
+  platform     String?
+  status       String   @default("pending") // pending | previewed | paid | completed
+  fileCount    Int      @default(0)
+  themeName    String?
+  previewData  String?  // JSON
+  convertedZip String?  // base64 or path
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  payment      Payment?
+}
+
+model Payment {
+  id               String     @id @default(cuid())
+  conversionId     String     @unique
+  conversion       Conversion @relation(fields: [conversionId], references: [id])
+  stripeSessionId  String     @unique
+  stripeCustomerId String?
+  amount           Int
+  currency         String     @default("usd")
+  status           String     @default("pending") // pending | paid | failed
+  plan             String     @default("starter") // starter | pro | agency
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+}
