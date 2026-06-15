@@ -22,5 +22,6 @@ export async function GET(request: NextRequest) {
     status: conversion.status,
     paid: conversion.payment?.status === 'paid',
     themeName: conversion.themeName,
+    completed: conversion.status === 'completed',
   });
 }

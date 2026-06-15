@@ -7,7 +7,11 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
-  const signature = request.headers.get('stripe-signature')!;
+  const signature = request.headers.get('stripe-signature');
+
+  if (!signature) {
+    return NextResponse.json({ error: 'Missing stripe-signature header' }, { status: 400 });
+  }
 
   let event: Stripe.Event;
 
@@ -29,10 +33,9 @@ export async function POST(request: NextRequest) {
             where: { stripeSessionId: session.id },
             data: {
               status: 'paid',
-              stripeCustomerId: session.customer as string,
+              stripeCustomerId: session.customer as string | undefined ?? undefined,
             },
           });
-
           await prisma.conversion.update({
             where: { sessionId },
             data: { status: 'paid' },
@@ -40,9 +43,10 @@ export async function POST(request: NextRequest) {
         }
         break;
       }
-      case 'payment_intent.payment_failed': {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        console.error('Payment failed:', paymentIntent.id);
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.error('Invoice payment failed:', invoice.id);
         break;
       }
     }

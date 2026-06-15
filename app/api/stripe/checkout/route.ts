@@ -11,38 +11,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
     }
 
-    const conversion = await prisma.conversion.findUnique({
-      where: { sessionId },
-    });
-
+    const conversion = await prisma.conversion.findUnique({ where: { sessionId } });
     if (!conversion) {
       return NextResponse.json({ error: 'Conversion not found' }, { status: 404 });
     }
 
     const planData = PLANS[plan];
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
     const isSubscription = plan === 'pro' || plan === 'agency';
+
+    // Build line_items correctly for one-time vs subscription
+    const line_items = isSubscription
+      ? [{ price: planData.priceId, quantity: 1 }]
+      : [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: `${planData.name} — WordPress Theme Conversion`,
+                description: `Convert your AI-generated site to a WordPress theme (${planData.description})`,
+              },
+              unit_amount: planData.price,
+            },
+            quantity: 1,
+          },
+        ];
 
     const checkoutSession = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: isSubscription ? 'subscription' : 'payment',
-      line_items: [
-        {
-          price_data: isSubscription
-            ? undefined
-            : {
-                currency: 'usd',
-                product_data: {
-                  name: `${planData.name} - WordPress Theme Conversion`,
-                  description: planData.description,
-                },
-                unit_amount: planData.price,
-              },
-          price: isSubscription ? planData.priceId : undefined,
-          quantity: 1,
-        },
-      ],
+      line_items,
       success_url: `${appUrl}/convert/success?session_id={CHECKOUT_SESSION_ID}&conversion=${sessionId}`,
       cancel_url: `${appUrl}/convert?cancelled=true`,
       metadata: {
@@ -52,15 +50,27 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await prisma.payment.create({
-      data: {
-        conversionId: conversion.id,
-        stripeSessionId: checkoutSession.id,
-        amount: planData.price,
-        plan,
-        status: 'pending',
-      },
+    // Upsert payment record
+    const existingPayment = await prisma.payment.findUnique({
+      where: { conversionId: conversion.id },
     });
+
+    if (existingPayment) {
+      await prisma.payment.update({
+        where: { conversionId: conversion.id },
+        data: { stripeSessionId: checkoutSession.id, amount: planData.price, plan, status: 'pending' },
+      });
+    } else {
+      await prisma.payment.create({
+        data: {
+          conversionId: conversion.id,
+          stripeSessionId: checkoutSession.id,
+          amount: planData.price,
+          plan,
+          status: 'pending',
+        },
+      });
+    }
 
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generatePreview } from '@/lib/converter';
 import { prisma } from '@/lib/prisma';
 import { randomUUID } from 'crypto';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -16,7 +19,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    if (!file.name.endsWith('.zip')) {
+    if (!file.name.toLowerCase().endsWith('.zip')) {
       return NextResponse.json({ error: 'Only .zip files are accepted' }, { status: 400 });
     }
 
@@ -30,6 +33,13 @@ export async function POST(request: NextRequest) {
 
     const sessionId = randomUUID();
 
+    // Save zip to /tmp so convert endpoint can access it after payment
+    const tmpDir = join('/tmp', 'aicode2wp');
+    if (!existsSync(tmpDir)) {
+      await mkdir(tmpDir, { recursive: true });
+    }
+    await writeFile(join(tmpDir, `${sessionId}.zip`), buffer);
+
     await prisma.conversion.create({
       data: {
         sessionId,
@@ -42,10 +52,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({
-      sessionId,
-      preview,
-    });
+    return NextResponse.json({ sessionId, preview });
   } catch (error) {
     console.error('Upload error:', error);
     return NextResponse.json({ error: 'Failed to process file' }, { status: 500 });
